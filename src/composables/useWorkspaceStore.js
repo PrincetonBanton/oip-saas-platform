@@ -24,6 +24,7 @@ const metaSummary = reactive({             // Global active file metadata contai
  * @returns {Object} Public reactive references and state mutators.
  */
 export function useWorkspaceStore() {
+  
   /**
    * Primary Ingestion Loader: Loads dataset array into global state and triggers sniffer.
    * @param {Array<Object>} payload - Array of row objects from parser.
