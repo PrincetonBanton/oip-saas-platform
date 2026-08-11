@@ -1,11 +1,8 @@
 import { ref, reactive } from 'vue'
+import { traceFlow } from '../utils/flowTracer.js'
 
-/**
- * ============================================================================
- * GLOBAL REACTIVE STATE DECLARATION (Singleton Scope)
- * ============================================================================
- * State declared outside the factory function persists across components.
- */
+// Module-level initialization trace
+traceFlow(import.meta.url, 'useWorkspaceStore Module Loaded')
 
 const currentDataset = ref([])             // Raw array of flat row objects parsed from file e.g., [{ Crop: 'Rice', Harvest_Tons: 42.5 }]
 const datasetHeaders = ref([])             // Dynamic list of column header keys extracted from dataset e.g., ['Crop', 'Harvest_Tons', 'Location']
@@ -19,12 +16,9 @@ const metaSummary = reactive({             // Global active file metadata contai
   fileSize: 0                              // File size in bytes e.g., 1024
 })
 
-/**
- * Custom Vue Composable for managing workspace state and data classification.
- * @returns {Object} Public reactive references and state mutators.
- */
+// Custom Vue Composable for managing workspace state and data classification.
 export function useWorkspaceStore() {
-  
+
   /**
    * Primary Ingestion Loader: Loads dataset array into global state and triggers sniffer.
    * @param {Array<Object>} payload - Array of row objects from parser.
@@ -33,6 +27,13 @@ export function useWorkspaceStore() {
    * @param {Array<string>} [sheets=[]] - Optional array of sheet names for Excel files.
    */
   function loadDataset(payload, fileName, fileType, sheets = []) {
+    traceFlow(import.meta.url, 'loadDataset() [START]', {
+      fileName,
+      fileType,
+      recordCount: payload?.length || 0,
+      sheetsCount: sheets.length
+    })
+
     currentDataset.value = payload
     availableSheets.value = sheets
     activeSheetName.value = sheets.length > 0 ? sheets[0] : ''
@@ -43,9 +44,18 @@ export function useWorkspaceStore() {
     if (payload && payload.length > 0) {
       datasetHeaders.value = Object.keys(payload[0])
       autoInitializeMapping(payload[0])
+    } else {
+      datasetHeaders.value = []
+      traceFlow(import.meta.url, 'loadDataset() [EMPTY_PAYLOAD]', { fileName })
     }
-  }
 
+    traceFlow(import.meta.url, 'loadDataset() [COMPLETED]', {
+      metaSummary: { ...metaSummary },
+      headersCount: datasetHeaders.value.length,
+      activeSheet: activeSheetName.value,
+      schemaMapping: { ...activeSchemaMapping }
+    })
+  }
   
   /**
    * Classification Sniffer Algorithm
@@ -55,6 +65,8 @@ export function useWorkspaceStore() {
    * - 'dimension': Standard text string / boolean
    */
   function autoInitializeMapping(sampleRow) {
+    traceFlow(import.meta.url, 'autoInitializeMapping() [START]', { sampleKeys: Object.keys(sampleRow) })
+
     for (const key in activeSchemaMapping) {
       delete activeSchemaMapping[key]
     }
@@ -71,6 +83,8 @@ export function useWorkspaceStore() {
         activeSchemaMapping[key] = 'dimension'
       }
     })
+
+    traceFlow(import.meta.url, 'autoInitializeMapping() [COMPLETED]', { ...activeSchemaMapping })
   }
 
   /**
@@ -79,15 +93,25 @@ export function useWorkspaceStore() {
    * @param {('dimension'|'metric'|'ignore')} role - New category assignment.
    */
   function updateColumnRole(header, role) {
+    const previousRole = activeSchemaMapping[header]
+
     if (header in activeSchemaMapping) {
       activeSchemaMapping[header] = role
+      traceFlow(import.meta.url, 'updateColumnRole() [MUTATED]', {
+        header,
+        previousRole,
+        newRole: role
+      })
+    } else {
+      traceFlow(import.meta.url, 'updateColumnRole() [HEADER_NOT_FOUND]', { header, role })
     }
   }
-
-  /**
-   * Flushes global session state clean.
-   */
+  
   function resetWorkspace() {
+    traceFlow(import.meta.url, 'resetWorkspace() [START]', {
+      clearedFile: metaSummary.fileName
+    })
+
     currentDataset.value = []
     datasetHeaders.value = []
     availableSheets.value = []
@@ -95,9 +119,12 @@ export function useWorkspaceStore() {
     metaSummary.fileName = ''
     metaSummary.fileType = ''
     metaSummary.fileSize = 0
+
     for (const key in activeSchemaMapping) {
       delete activeSchemaMapping[key]
     }
+
+    traceFlow(import.meta.url, 'resetWorkspace() [COMPLETED]')
   }
 
   return {

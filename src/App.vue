@@ -7,7 +7,7 @@
 
     <main class="workspace-main">
       <div class="toolbar">
-        <button @click="runDiagnostic" class="test-btn">Run Diagnostic Suite</button>
+        <button @click="handleRunDiagnostic" class="test-btn">Run Diagnostic Suite</button>
       </div>
 
       <FileIngestionHub />
@@ -16,8 +16,23 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
+import { traceFlow } from './utils/flowTracer.js'
 import { runDiagnostic } from './utils/testParser.js'
 import FileIngestionHub from './components/FileIngestionHub.vue'
+
+// 1. Script setup tracer (Dynamically captures file name 'App.vue')
+traceFlow(import.meta.url, 'Script Setup Initialized')
+
+onMounted(() => {
+  traceFlow(import.meta.url, 'onMounted Lifecycle Hook')
+})
+
+function handleRunDiagnostic() {
+  traceFlow(import.meta.url, 'handleRunDiagnostic()')
+  runDiagnostic()
+}
+
 </script>
 
 <style scoped>

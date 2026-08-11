@@ -13,14 +13,14 @@
         type="file" 
         ref="fileInputRef" 
         class="hidden-file-input" 
-        accept=".csv, .tsv, .json, .xlsx, .xls, .sql, .sqlite, .db, .dbf"
+        accept=".csv, .tsv, .xml, .json, .xlsx, .xls, .sql, .sqlite, .db, .dbf"
         @change="handleFileSelected"
       />
 
       <div v-if="!isLoading" class="drop-zone-content">
         <div class="upload-icon">📂</div>
         <h3>Drag & Drop Data or Database File</h3>
-        <p class="subtitle">Supports <strong>.csv, .tsv .xlsx, .json, .sql, .sqlite, .dbf</strong></p>
+        <p class="subtitle">Supports <strong>.csv, .tsv, .xml, .xlsx, .json, .sql, .sqlite, .dbf</strong></p>
         <button type="button" class="browse-btn">Browse Local Files</button>
       </div>
 
@@ -37,7 +37,7 @@
 
     <!-- AUTOMATED INGESTION ACTION BUTTONS -->
     <div class="auto-actions">
-      <button class="action-card" @click="handleAutoDetect">
+      <button class="action-card" @click="showAutoDetectModal = true">
         <span class="icon">🔍</span>
         <div class="text">
           <strong>Auto-Detect Local Databases</strong>
@@ -76,11 +76,26 @@
         </select>
       </div>
     </div>
+
+    <!-- AUTO-DETECT MODAL -->
+    <AutoDetectModal 
+      :is-open="showAutoDetectModal"
+      @close="showAutoDetectModal = false"
+      @file-selected="onAutoDetectFileSelected"
+    />
+
+    <!-- SERVER CONNECT MODAL -->
+    <ServerConnectModal
+      :is-open="showServerConnectModal"
+      @close="showServerConnectModal = false"
+      @connect="onServerConnected"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { traceFlow } from '../utils/flowTracer.js'
 import { useWorkspaceStore } from '../composables/useWorkspaceStore.js'
 import { parseCsvFile } from '../utils/parserCsv.js'
 import { parseJsonFile } from '../utils/parserJson.js'
@@ -89,6 +104,11 @@ import { parseSqlFile } from '../utils/parserSql.js'
 import { parseDbfFile } from '../utils/parserDbf.js'
 import { parseSqliteFile } from '../utils/parserSqlite.js'
 import { parseXmlFile } from '../utils/parserXml.js'
+import AutoDetectModal from '../modals/AutoDetectModal.vue'
+import ServerConnectModal from '../modals/ServerConnectModal.vue'
+
+// 1. Module Initialization
+traceFlow(import.meta.url, 'Script Setup Initialized')
 
 const { loadDataset, resetWorkspace, currentDataset, datasetHeaders, metaSummary, availableSheets, activeSheetName } = useWorkspaceStore()
 
@@ -98,16 +118,35 @@ const errorMessage = ref('')
 const fileInputRef = ref(null)
 const currentRawFile = ref(null)
 
-function triggerFileInput() { if (fileInputRef.value) fileInputRef.value.click() }
+// Modal States
+const showAutoDetectModal = ref(false)
+const showServerConnectModal = ref(false)
+
+onMounted(() => {
+  traceFlow(import.meta.url, 'onMounted Lifecycle Hook')
+})
+
+function triggerFileInput() {
+  traceFlow(import.meta.url, 'triggerFileInput()')
+  if (fileInputRef.value) fileInputRef.value.click()
+}
 
 function handleDrop(e) {
   isDragging.value = false
   const files = e.dataTransfer.files
+  traceFlow(import.meta.url, 'handleDrop()', {
+    fileCount: files?.length || 0,
+    fileName: files[0]?.name || null
+  })
   if (files && files.length > 0) processFile(files[0])
 }
 
 function handleFileSelected(e) {
   const files = e.target.files
+  traceFlow(import.meta.url, 'handleFileSelected()', {
+    fileCount: files?.length || 0,
+    fileName: files[0]?.name || null
+  })
   if (files && files.length > 0) processFile(files[0])
 }
 
@@ -117,51 +156,115 @@ async function processFile(file, selectedSheet = null) {
   currentRawFile.value = file
   const ext = file.name.split('.').pop().toLowerCase()
 
+  traceFlow(import.meta.url, 'processFile() [START]', {
+    name: file.name,
+    size: `${(file.size / 1024).toFixed(2)} KB`,
+    extension: ext,
+    selectedSheet
+  })
+
   try {
+    let dataset = []
+    let sheetNames = []
+
     if (ext === 'csv' || ext === 'tsv') {
-      const data = await parseCsvFile(file)
-      loadDataset(data, file.name, ext)
+      traceFlow(import.meta.url, 'Invoking parseCsvFile()', { fileName: file.name, extension: ext })
+      dataset = await parseCsvFile(file)
+      traceFlow(import.meta.url, 'parseCsvFile() Completed', { recordCount: dataset?.length || 0 })
+      loadDataset(dataset, file.name, ext)
+
     } else if (ext === 'xml') {
-      const data = await parseXmlFile(file)
-      loadDataset(data, file.name, 'xml')
+      traceFlow(import.meta.url, 'Invoking parseXmlFile()', { fileName: file.name })
+      dataset = await parseXmlFile(file)
+      traceFlow(import.meta.url, 'parseXmlFile() Completed', { recordCount: dataset?.length || 0 })
+      loadDataset(dataset, file.name, 'xml')
+
     } else if (ext === 'json') {
-      const data = await parseJsonFile(file)
-      loadDataset(data, file.name, 'json')
+      traceFlow(import.meta.url, 'Invoking parseJsonFile()', { fileName: file.name })
+      dataset = await parseJsonFile(file)
+      traceFlow(import.meta.url, 'parseJsonFile() Completed', { recordCount: dataset?.length || 0 })
+      loadDataset(dataset, file.name, 'json')
+
     } else if (ext === 'xlsx' || ext === 'xls') {
+      traceFlow(import.meta.url, 'Invoking parseExcelFile()', { fileName: file.name, selectedSheet })
       const res = await parseExcelFile(file, selectedSheet)
+      dataset = res.data
+      sheetNames = res.sheetNames
+      traceFlow(import.meta.url, 'parseExcelFile() Completed', { recordCount: dataset?.length || 0, sheetNames })
       loadDataset(res.data, file.name, 'xlsx', res.sheetNames)
+
     } else if (ext === 'sql') {
-      const data = await parseSqlFile(file)
-      loadDataset(data, file.name, 'sql')
+      traceFlow(import.meta.url, 'Invoking parseSqlFile()', { fileName: file.name })
+      dataset = await parseSqlFile(file)
+      traceFlow(import.meta.url, 'parseSqlFile() Completed', { recordCount: dataset?.length || 0 })
+      loadDataset(dataset, file.name, 'sql')
+
     } else if (ext === 'dbf') {
-      const data = await parseDbfFile(file)
-      loadDataset(data, file.name, 'dbf')
+      traceFlow(import.meta.url, 'Invoking parseDbfFile()', { fileName: file.name })
+      dataset = await parseDbfFile(file)
+      traceFlow(import.meta.url, 'parseDbfFile() Completed', { recordCount: dataset?.length || 0 })
+      loadDataset(dataset, file.name, 'dbf')
+
     } else if (ext === 'sqlite' || ext === 'db') {
-      const data = await parseSqliteFile(file)
-      loadDataset(data, file.name, 'sqlite')
+      traceFlow(import.meta.url, 'Invoking parseSqliteFile()', { fileName: file.name })
+      dataset = await parseSqliteFile(file)
+      traceFlow(import.meta.url, 'parseSqliteFile() Completed', { recordCount: dataset?.length || 0 })
+      loadDataset(dataset, file.name, 'sqlite')
+
     } else {
+      traceFlow(import.meta.url, 'Unsupported file extension encountered', { extension: ext })
       throw new Error(`Unsupported format: .${ext}`)
     }
+
+    traceFlow(import.meta.url, 'processFile() [SUCCESS]', {
+      fileName: file.name,
+      rowsParsed: dataset?.length || 0,
+      detectedHeaders: dataset?.length > 0 ? Object.keys(dataset[0]) : [],
+      sheets: sheetNames
+    })
   } catch (err) {
     errorMessage.value = err.message || 'File parsing error.'
+    traceFlow(import.meta.url, 'processFile() [ERROR]', {
+      fileName: file.name,
+      error: errorMessage.value
+    })
   } finally {
     isLoading.value = false
   }
 }
 
-function handleAutoDetect() {
-  alert('Auto-Detect Triggered: Scanning local system directories...')
+function onAutoDetectFileSelected(fileItem) {
+  traceFlow(import.meta.url, 'onAutoDetectFileSelected()', fileItem)
+  if (fileItem.file) {
+    processFile(fileItem.file)
+  } else {
+    errorMessage.value = `Selected database file (${fileItem.name}) detected at: ${fileItem.path}`
+  }
 }
 
 function handleServerConnect() {
-  alert('Database Connection Wizard: Opening host/port connector dialog...')
+  traceFlow(import.meta.url, 'handleServerConnect() - Opening connection modal')
+  showServerConnectModal.value = true
+}
+
+function onServerConnected(config) {
+  traceFlow(import.meta.url, 'onServerConnected() - Connection configured', config)
+  // Store or process server connection credentials/dataset here
 }
 
 function onSheetChange(e) {
-  if (currentRawFile.value) processFile(currentRawFile.value, e.target.value)
+  const targetSheet = e.target.value
+  traceFlow(import.meta.url, 'onSheetChange()', {
+    targetSheet,
+    activeFile: currentRawFile.value?.name
+  })
+  if (currentRawFile.value) processFile(currentRawFile.value, targetSheet)
 }
 
 function handleReset() {
+  traceFlow(import.meta.url, 'handleReset()', {
+    clearedFile: metaSummary.value?.fileName || null
+  })
   resetWorkspace()
   currentRawFile.value = null
   if (fileInputRef.value) fileInputRef.value.value = ''
@@ -169,7 +272,7 @@ function handleReset() {
 </script>
 
 <style scoped>
-.file-ingestion-hub { max-width: 800px; margin: 1rem auto; font-family: system-ui, -apple-system, sans-serif; }
+.file-ingestion-hub { max-width: 800px; margin: 1rem auto; font-family: system-ui, -apple-system, sans-serif; background-color: lightgray; padding: 2rem; }
 .drop-zone { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 2rem 1.5rem; text-align: center; background-color: #f8fafc; cursor: pointer; transition: all 0.2s ease; }
 .drop-zone:hover, .drop-zone.is-dragging { border-color: #0284c7; background-color: #f0f9ff; }
 .hidden-file-input { display: none; }
