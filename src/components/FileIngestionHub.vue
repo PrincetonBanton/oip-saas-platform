@@ -247,11 +247,16 @@ function handleServerConnect() {
   showServerConnectModal.value = true
 }
 
-function onServerConnected(config) {
-  traceFlow(import.meta.url, 'onServerConnected() - Connection configured', config)
-  // Store or process server connection credentials/dataset here
-}
+function onServerConnected(res) {
+  traceFlow(import.meta.url, 'onServerConnected() - Supabase table received', {
+    table: res.tableName,
+    rowCount: res.data?.length
+  })
 
+  if (res.data && res.data.length > 0) {
+    loadDataset(res.data, `supabase_${res.tableName}`, 'postgres')
+  }
+}
 function onSheetChange(e) {
   const targetSheet = e.target.value
   traceFlow(import.meta.url, 'onSheetChange()', {

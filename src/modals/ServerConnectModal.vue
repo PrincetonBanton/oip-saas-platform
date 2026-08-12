@@ -2,100 +2,61 @@
   <div v-if="isOpen" class="modal-backdrop" @click.self="close">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>🔌 Connect to Database Server</h3>
+        <h3>🔌 Connect to Supabase / Postgres</h3>
         <button class="close-btn" @click="close">✕</button>
       </div>
 
-      <form @submit.prevent="handleSubmit" class="modal-body">
+      <div class="modal-body">
         <div class="form-group">
-          <label>Database Type</label>
-          <select v-model="form.dbType" class="form-control">
-            <option value="postgres">PostgreSQL</option>
-            <option value="mysql">MySQL / MariaDB</option>
-            <option value="mssql">MS SQL Server</option>
+          <div class="label-row">
+            <label>Select Table</label>
+            <button class="refresh-btn" :disabled="isFetchingTables" @click="loadTables">
+              {{ isFetchingTables ? 'Scanning...' : '🔄 Refresh Tables' }}
+            </button>
+          </div>
+
+          <!-- TABLE SELECT DROPDOWN -->
+          <select 
+            v-if="availableTables.length > 0"
+            v-model="selectedTable" 
+            class="form-control"
+            :disabled="loading"
+          >
+            <option value="" disabled>-- Select a table from database --</option>
+            <option v-for="table in availableTables" :key="table" :value="table">
+              📊 {{ table }}
+            </option>
           </select>
-        </div>
 
-        <div class="form-row">
-          <div class="form-group flex-2">
-            <label>Host / IP Address</label>
-            <input 
-              v-model="form.host" 
-              type="text" 
-              class="form-control" 
-              placeholder="localhost or 192.168.1.1" 
-              required 
-            />
-          </div>
-          <div class="form-group flex-1">
-            <label>Port</label>
-            <input 
-              v-model="form.port" 
-              type="number" 
-              class="form-control" 
-              :placeholder="defaultPort" 
-              required 
-            />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Database Name</label>
+          <!-- FALLBACK MANUAL INPUT -->
           <input 
-            v-model="form.database" 
+            v-else
+            v-model="selectedTable" 
             type="text" 
             class="form-control" 
-            placeholder="my_database" 
-            required 
+            placeholder="Type table name manually (e.g. users, products)"
+            :disabled="loading"
           />
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>Username</label>
-            <input 
-              v-model="form.user" 
-              type="text" 
-              class="form-control" 
-              placeholder="admin" 
-              required 
-            />
-          </div>
-          <div class="form-group">
-            <label>Password</label>
-            <input 
-              v-model="form.password" 
-              type="password" 
-              class="form-control" 
-              placeholder="••••••••" 
-            />
-          </div>
-        </div>
-
-        <div class="form-checkbox">
-          <label>
-            <input v-model="form.useSsl" type="checkbox" />
-            Enable SSL / TLS Connection
-          </label>
-        </div>
-
-        <div v-if="testResult" :class="['result-box', testResult.success ? 'success' : 'error']">
-          {{ testResult.message }}
+        <div v-if="errorMessage" class="error-box">
+          ⚠️ {{ errorMessage }}
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" @click="close">Cancel</button>
-          <button type="submit" class="btn-primary" :disabled="isConnecting">
-            {{ isConnecting ? 'Testing Connection...' : 'Connect' }}
+          <button type="button" class="btn-secondary" :disabled="loading" @click="close">Cancel</button>
+          <button type="button" class="btn-primary" :disabled="loading || !selectedTable" @click="importSelectedTable">
+            {{ loading ? 'Ingesting Data...' : 'Import Table Data' }}
           </button>
         </div>
-      </form>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
+import { supabase } from '../utils/supabaseClient.js'
 import { traceFlow } from '../utils/flowTracer.js'
 
 const props = defineProps({
@@ -104,79 +65,137 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'connect'])
 
-const isConnecting = ref(false)
-const testResult = ref(null)
+const selectedTable = ref('')
+const availableTables = ref([])
+const isFetchingTables = ref(false)
+const loading = ref(false)
+const errorMessage = ref('')
 
-const form = ref({
-  dbType: 'postgres',
-  host: 'localhost',
-  port: 5432,
-  database: '',
-  user: '',
-  password: '',
-  useSsl: false
-})
-
-// Auto-update standard ports when changing database type
-const defaultPort = computed(() => {
-  switch (form.value.dbType) {
-    case 'mysql': return 3306
-    case 'mssql': return 1433
-    case 'postgres':
-    default: return 5432
+// Auto-detect tables whenever modal opens
+watch(() => props.isOpen, (newVal) => {
+  if (newVal) {
+    loadTables()
   }
 })
 
-watch(() => form.value.dbType, () => {
-  form.value.port = defaultPort.value
-})
+async function loadTables() {
+  isFetchingTables.value = true
+  errorMessage.value = ''
+  
+  traceFlow(import.meta.url, 'loadTables() - Auto-detecting Supabase tables')
 
-function close() {
-  testResult.value = null
-  emit('close')
+  try {
+    // Attempt RPC function first
+    const { data, error } = await supabase.rpc('get_tables')
+    
+    if (error) throw error
+
+    if (data && data.length > 0) {
+      // Map return values cleanly whether returned as strings or objects
+      availableTables.value = data.map(item => typeof item === 'string' ? item : item.table_name)
+      if (availableTables.value.length > 0) {
+        selectedTable.value = availableTables.value[0]
+      }
+      traceFlow(import.meta.url, 'loadTables() [SUCCESS]', { detected: availableTables.value })
+    } else {
+      availableTables.value = []
+    }
+  } catch (err) {
+    traceFlow(import.meta.url, 'loadTables() [FALLBACK] - RPC missing or RLS restricted', { error: err.message })
+    // Silent fallback to manual mode if RPC is not configured in Supabase
+    availableTables.value = []
+  } finally {
+    isFetchingTables.value = false
+  }
 }
 
-async function handleSubmit() {
-  traceFlow(import.meta.url, 'handleSubmit() - Testing database connection', {
-    dbType: form.value.dbType,
-    host: form.value.host,
-    port: form.value.port,
-    database: form.value.database
-  })
+async function importSelectedTable() {
+  if (!selectedTable.value) return
 
-  isConnecting.value = true
-  testResult.value = null
+  loading.value = true
+  errorMessage.value = ''
 
-  // Connect logic / Backend route invocation
-  setTimeout(() => {
-    isConnecting.value = false
-    emit('connect', { ...form.value })
+  traceFlow(import.meta.url, 'importSelectedTable() [START]', { table: selectedTable.value })
+
+  try {
+    // 1. Initialize pagination controls and master dataset array
+    let allData = []
+    let page = 0
+    const pageSize = 1000
+    let hasMore = true
+
+    // 2. Loop continuously to fetch data chunks until no more rows remain
+    while (hasMore) {
+      // Calculate zero-indexed row offsets for the current page chunk
+      const from = page * pageSize
+      const to = from + pageSize - 1
+
+      // 3. .range(from, to) bypasses PostgREST's default 1,000-row limit by asking for specific slices
+      const { data, error } = await supabase
+        .from(selectedTable.value.trim())
+        .select('*')
+        .range(from, to) // <--- CRITICAL LINE: Solves the 1,000-row cap
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        allData = allData.concat(data)     // Append current 1,000-row batch to master array
+
+        // 4. If returned chunk is less than 1,000, we've reached the last page
+        if (data.length < pageSize) {
+          hasMore = false                 // Reached the end of the table
+        } else {
+          page++                          // Increment page index to fetch next slice (e.g. 1000-1999, 2000-2999)
+        }
+      } else {
+        hasMore = false                   // Empty response means dataset is fully loaded
+      }
+    }
+
+    if (allData.length === 0) {
+      throw new Error(`Table "${selectedTable.value}" contains no records.`)
+    }
+
+    traceFlow(import.meta.url, 'importSelectedTable() [SUCCESS]', { rowCount: allData.length })
+
+    // Emit full aggregated dataset to parent hub component
+    emit('connect', {
+      tableName: selectedTable.value,
+      data: allData,
+      format: 'supabase'
+    })
+
     close()
-  }, 1000)
+  } catch (err) {
+    errorMessage.value = err.message || 'Failed to fetch table contents from Supabase.'
+    traceFlow(import.meta.url, 'importSelectedTable() [ERROR]', { error: errorMessage.value })
+  } finally {
+    loading.value = false
+  }
+}
+
+function close() {
+  errorMessage.value = ''
+  emit('close')
 }
 </script>
 
 <style scoped>
 .modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-card { background: #ffffff; width: 100%; max-width: 480px; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); overflow: hidden; border: 1px solid #e2e8f0; }
+.modal-card { background: #ffffff; width: 100%; max-width: 460px; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); overflow: hidden; border: 1px solid #e2e8f0; }
 .modal-header { padding: 1rem 1.25rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
 .modal-header h3 { margin: 0; font-size: 1.05rem; color: #0f172a; }
 .close-btn { background: none; border: none; font-size: 1.1rem; color: #64748b; cursor: pointer; }
 .modal-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem; }
-.form-group { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
-.form-row { display: flex; gap: 0.75rem; }
-.flex-1 { flex: 1; }
-.flex-2 { flex: 2; }
+.form-group { display: flex; flex-direction: column; gap: 0.35rem; }
+.label-row { display: flex; justify-content: space-between; align-items: center; }
 label { font-size: 0.75rem; font-weight: 600; color: #475569; }
-.form-control { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box; }
-.form-control:focus { outline: none; border-color: #0284c7; }
-.form-checkbox label { font-size: 0.8rem; font-weight: 400; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+.refresh-btn { background: none; border: none; color: #0284c7; font-size: 0.75rem; cursor: pointer; font-weight: 600; }
+.refresh-btn:hover { text-decoration: underline; }
+.form-control { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box; background-color: #fff; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
 .btn-primary { background: #0284c7; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
 .btn-primary:hover { background: #0369a1; }
 .btn-secondary { background: #e2e8f0; color: #334155; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
-.btn-secondary:hover { background: #cbd5e1; }
-.result-box { padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.8rem; }
-.result-box.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.result-box.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.error-box { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 0.65rem 0.85rem; border-radius: 6px; font-size: 0.8rem; }
 </style>
