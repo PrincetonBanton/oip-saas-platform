@@ -1,4 +1,4 @@
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { traceFlow } from '../utils/flowTracer.js'
 
 // Module-level initialization trace
@@ -25,11 +25,13 @@ export function useWorkspaceStore() {
    * @param {string} fileName - Discovered or original file name.
    * @param {string} fileType - Format label ('csv' | 'json' | 'xlsx').
    * @param {Array<string>} [sheets=[]] - Optional array of sheet names for Excel files.
+   * @param {number} [fileSize=0] - Size of the file in bytes.
    */
-  function loadDataset(payload, fileName, fileType, sheets = []) {
+  function loadDataset(payload, fileName, fileType, sheets = [], fileSize = 0) {
     traceFlow(import.meta.url, 'loadDataset() [START]', {
       fileName,
       fileType,
+      fileSize,
       recordCount: payload?.length || 0,
       sheetsCount: sheets.length
     })
@@ -40,6 +42,7 @@ export function useWorkspaceStore() {
     
     metaSummary.fileName = fileName
     metaSummary.fileType = fileType
+    metaSummary.fileSize = fileSize
 
     if (payload && payload.length > 0) {
       datasetHeaders.value = Object.keys(payload[0])
@@ -56,6 +59,32 @@ export function useWorkspaceStore() {
       schemaMapping: { ...activeSchemaMapping }
     })
   }
+
+  /**
+   * Cached missing data percentage calculation.
+   * Audits dataset cells for null, undefined, or empty string values.
+   */
+  const missingRate = computed(() => {
+    const rows = currentDataset.value
+    const headers = datasetHeaders.value
+
+    if (!rows.length || !headers.length) return 0
+
+    const totalCells = rows.length * headers.length
+    let emptyCells = 0
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      for (let j = 0; j < headers.length; j++) {
+        const val = row[headers[j]]
+        if (val === null || val === undefined || val === '') {
+          emptyCells++
+        }
+      }
+    }
+
+    return Number(((emptyCells / totalCells) * 100).toFixed(1))
+  })
   
   /**
    * Classification Sniffer Algorithm
@@ -134,6 +163,7 @@ export function useWorkspaceStore() {
     availableSheets,
     activeSheetName,
     metaSummary,
+    missingRate,
     loadDataset,
     updateColumnRole,
     resetWorkspace

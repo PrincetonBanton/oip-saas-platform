@@ -1,4 +1,4 @@
-const ENABLE_TRACER = true
+const ENABLE_TRACER = false
 
 
  //Extracts file name from import.meta.url or returns raw location string
