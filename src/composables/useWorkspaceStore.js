@@ -7,6 +7,7 @@ traceFlow(import.meta.url, 'useWorkspaceStore Module Loaded')
 const currentDataset = ref([])             // Raw array of flat row objects parsed from file e.g., [{ Crop: 'Rice', Harvest_Tons: 42.5 }]
 const datasetHeaders = ref([])             // Dynamic list of column header keys extracted from dataset e.g., ['Crop', 'Harvest_Tons', 'Location']
 const activeSchemaMapping = reactive({})   // Dynamic column role dictionary e.g., { Crop: 'dimension', Harvest_Tons: 'metric', Farm_ID: 'ignore' }
+const customSchemaTypes = reactive({})     // STEP 3.3: Dynamic data type override dictionary e.g., { Crop: 'string', Harvest_Tons: 'number' }
 const availableSheets = ref([])            // List of workbook sheet tab names if parsed from Excel e.g., ['Sheet1', 'Q1_Sales', 'Settings']
 const activeSheetName = ref('')            // Currently active sheet tab name selected by user e.g., 'Sheet1'
 
@@ -52,11 +53,17 @@ export function useWorkspaceStore() {
       traceFlow(import.meta.url, 'loadDataset() [EMPTY_PAYLOAD]', { fileName })
     }
 
+    // Reset Step 3.3 custom type overrides on new file load
+    for (const key in customSchemaTypes) {
+      delete customSchemaTypes[key]
+    }
+
     traceFlow(import.meta.url, 'loadDataset() [COMPLETED]', {
       metaSummary: { ...metaSummary },
       headersCount: datasetHeaders.value.length,
       activeSheet: activeSheetName.value,
-      schemaMapping: { ...activeSchemaMapping }
+      schemaMapping: { ...activeSchemaMapping },
+      customSchemaTypes: { ...customSchemaTypes }
     })
   }
 
@@ -117,7 +124,7 @@ export function useWorkspaceStore() {
   }
 
   /**
-   * UI Manual Override Mutator
+   * UI Manual Override Mutator for Operational Roles
    * @param {string} header - Column key name.
    * @param {('dimension'|'metric'|'ignore')} role - New category assignment.
    */
@@ -134,6 +141,25 @@ export function useWorkspaceStore() {
     } else {
       traceFlow(import.meta.url, 'updateColumnRole() [HEADER_NOT_FOUND]', { header, role })
     }
+  }
+
+  /**
+   * STEP 3.3: UI Data Type Override Mutator
+   * Updates state dictionary and fires step completion alert.
+   * @param {string} header - Column key name.
+   * @param {string} type - Target JS data type (e.g. 'string', 'number', 'boolean', 'date', 'object').
+   */
+  function updateColumnType(header, type) {
+    const previousType = customSchemaTypes[header] || 'unspecified'
+    customSchemaTypes[header] = type
+
+    traceFlow(import.meta.url, 'updateColumnType() [MUTATED]', {
+      header,
+      previousType,
+      newType: type
+    })
+
+    alert(`the process of updating data type for "${header}" to "${type}" on 3.3 is finished`)
   }
   
   function resetWorkspace() {
@@ -153,6 +179,10 @@ export function useWorkspaceStore() {
       delete activeSchemaMapping[key]
     }
 
+    for (const key in customSchemaTypes) {
+      delete customSchemaTypes[key]
+    }
+
     traceFlow(import.meta.url, 'resetWorkspace() [COMPLETED]')
   }
 
@@ -160,12 +190,14 @@ export function useWorkspaceStore() {
     currentDataset,
     datasetHeaders,
     activeSchemaMapping,
+    customSchemaTypes,
     availableSheets,
     activeSheetName,
     metaSummary,
     missingRate,
     loadDataset,
     updateColumnRole,
+    updateColumnType,
     resetWorkspace
   }
 }

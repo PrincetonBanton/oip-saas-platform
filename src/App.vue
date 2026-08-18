@@ -12,35 +12,13 @@
 
     <main class="workspace-main">
       <!-- PHASE 3: INGESTION HUB -->
-      <FileIngestionHub @open-grid="openModal" />
+      <FileIngestionHub />
 
       <!-- EXCEL HEADER REMINDER BANNER -->
       <div v-if="isExcelFile" class="excel-notice">
         <p><strong>Excel File Loaded:</strong> Ensure your active sheet uses the <strong>first row for headers</strong> (no blank top rows or titles) for clean field mapping.</p>
       </div>
     </main>
-
-    <!-- DATA GRID PREVIEW MODAL -->
-    <Teleport to="body">
-      <div v-if="isGridModalOpen" class="modal-backdrop" @click.self="closeModal">
-        <div class="modal-container">
-          <header class="modal-header">
-            <div class="modal-title-group">
-              <h2>Active Dataset Workspace</h2>
-              <span class="dataset-tag">{{ datasetName }}</span>
-            </div>
-            <button @click="closeModal" class="close-modal-btn" aria-label="Close Modal">&times;</button>
-          </header>
-
-          <div class="modal-body">
-            <DataGridPreview 
-              :dataset="activeDataset" 
-              :headers="datasetHeaders" 
-            />
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -49,6 +27,7 @@ import { ref, computed, onMounted } from 'vue'
 import { traceFlow } from './utils/flowTracer.js'
 import { runDiagnostic } from './utils/testParser.js'
 import { useWorkspaceStore } from './composables/useWorkspaceStore.js'
+
 import FileIngestionHub from './components/FileIngestionHub.vue'
 import DataGridPreview from './components/DataGridPreview.vue'
 
@@ -105,7 +84,7 @@ function closeModal() {
 .header-brand { display: flex; align-items: center; gap: 0.75rem; }
 .app-header h1 { font-size: 1.35rem; font-weight: 800; color: #1e293b; margin: 0; }
 .badge { background: #e0f2fe; color: #0369a1; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700; }
-.workspace-main { display: flex; flex-direction: column; gap: 1.25rem; width: 100%; }
+.workspace-main { display: flex; flex-direction: column; gap: 1.25rem; width: 100%;}
 .toolbar { display: flex; justify-content: flex-end; }
 .test-btn { padding: 0.4rem 0.85rem; background: #0284c7; color: #fff; border: none; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: background 0.2s; }
 .test-btn:hover { background: #0369a1; }

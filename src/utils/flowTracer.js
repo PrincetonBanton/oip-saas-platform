@@ -1,6 +1,5 @@
 const ENABLE_TRACER = false
 
-
  //Extracts file name from import.meta.url or returns raw location string
 function resolveLocation(location) {
   if (typeof location === 'string' && (location.includes('/') || location.includes('\\'))) {
